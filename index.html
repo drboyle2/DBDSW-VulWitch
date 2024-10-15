@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vulwitch</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css">
+    <script src="scripts.js" defer></script>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Vulwitch</h2>
+        <div class="card mt-4">
+            <div class="card-body">
+                <h4>Login</h4>
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-4" id="uploadSection" style="display: none;">
+            <div class="card-body">
+                <h4>Upload Code for Analysis</h4>
+                <form id="uploadForm">
+                    <div class="mb-3">
+                        <label for="codeFile" class="form-label">Select Python File</label>
+                        <input type="file" class="form-control" id="codeFile" name="codeFile" accept=".py" required>
+                    </div>
+                    <button type="submit" class="btn btn-success">Upload and Analyze</button>
+                </form>
+                <div id="result" class="mt-4"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
