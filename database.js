@@ -1,6 +1,6 @@
 const mysql = require('mysql2');
 
-const connection = mysql.createConnection({
+const db = mysql.createConnection({
   host: 'dbdsw-db.czmww6q4wkst.us-east-2.rds.amazonaws.com',  // Replace with your RDS endpoint
   user: 'admin',                                               // Replace with your RDS master username
   password: 'b1yjbqj6BWvA6Od',                                   // Replace with your RDS password
@@ -8,15 +8,15 @@ const connection = mysql.createConnection({
 });
 
 // Connect to the database
-connection.connect(error => {
+db.connect(error => {
   if (error) {
     console.error('Error connecting to the database:', error.stack);
     return;
   }
-  console.log('Connected to AWS RDS MySQL database as ID ' + connection.threadId);
+  console.log('Connected to AWS RDS MySQL database as ID ' + db.threadId);
 });
 
-module.exports = connection;
+module.exports = db;
 
 
 
