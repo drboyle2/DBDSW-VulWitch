@@ -1,17 +1,28 @@
-const { Sequelize } = require('sequelize');
+const mysql = require('mysql2');
 
-const sequelize = new Sequelize('your_database_name', 'root', 'your_password', {
-  host: 'localhost',
-  dialect: 'mysql',
+const connection = mysql.createConnection({
+  host: 'dbdsw-db.czmww6q4wkst.us-east-2.rds.amazonaws.com',  // Replace with your RDS endpoint
+  user: 'admin',                                               // Replace with your RDS master username
+  password: 'b1yjbqj6BWvA6Od',                                   // Replace with your RDS password
+  database: 'DBDSWVulwitch'                              // Replace with the database name you're using
 });
 
-(async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('Connection has been established successfully.');
-  } catch (error) {
-    console.error('Unable to connect to the database:', error);
+// Connect to the database
+connection.connect(error => {
+  if (error) {
+    console.error('Error connecting to the database:', error.stack);
+    return;
   }
-})();
+  console.log('Connected to AWS RDS MySQL database as ID ' + connection.threadId);
+});
 
-module.exports = sequelize;
+module.exports = connection;
+
+
+
+
+
+
+// mysql -h dbdsw-db.czmww6q4wkst.us-east-2.rds.amazonaws.com -u admin -p
+// b1yjbqj6BWvA6Od
+
