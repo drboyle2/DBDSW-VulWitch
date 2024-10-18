@@ -4,9 +4,16 @@ const multer = require('multer');
 const path = require('path');
 const { exec } = require('child_process');
 const fs = require('fs');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const verifyToken = require('./verifyToken');
+const jwtSecret = 'DBDSW-Token-410';
+
 
 const app = express();
 const PORT = 3000;
+app.use(cors());
+app.use(express.json());
 
 // Ensure the uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -14,7 +21,7 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
-// Serve the index.html file
+// Serve the contents of the public folder  
 app.use(express.static(path.join(__dirname, 'Public')));
 
 app.get('/', (req, res) => {
@@ -32,23 +39,30 @@ app.get('/api/users', (req, res) => {
   });
 });
 
-app.post('/api/users', (req, res) => {
-  const { name, email, password, type } = req.body; // Include the new field here
+const bcrypt = require('bcrypt');
 
-  // Basic validation
-  if (!name || !email || !password) { // Check if age is provided
-      return res.status(400).json({ error: 'Name, email, and password are required' });
+app.post('/api/users', async (req, res) => {
+  const { name, password, type } = req.body;
+
+  if (!name || !password) {
+    return res.status(400).json({ error: 'Name and password are required' });
   }
 
-  // SQL query to insert the new user
-  const query = 'INSERT INTO users (name, email, password, type) VALUES (?, ?, ?, ?)';
-  connection.query(query, [name, email, password, type], (error, results) => {
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10); // Hash the password
+    const query = 'INSERT INTO users (name, password, type) VALUES (?, ?, ?)';
+    console.log(query);
+    connection.query(query, [name, hashedPassword, type], (error, results) => {
       if (error) {
-          console.error('Database insert error:', error);
-          return res.status(500).json({ error: 'Error adding user', details: error });
+        console.error('Database insert error:', error);
+        return res.status(500).json({ error: 'Error adding user', details: error });
       }
       res.status(201).json({ message: 'User added successfully', userId: results.insertId });
-  });
+    });
+  } catch (error) {
+    console.error('Hashing error:', error);
+    return res.status(500).json({ error: 'Error adding user', details: error });
+  }
 });
 
 // Configure multer for file uploads
@@ -116,6 +130,111 @@ app.post('/flawfind', upload.single('file'), (req, res) => {
       res.json({ result: result });
   });
 });
+
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).send('Username and password are required.');
+  }
+
+  console.log('Attempting login for username:', username);
+
+  const query = 'SELECT * FROM users WHERE name = ?';
+
+  connection.query(query, [username], (err, results) => {
+    if (err) {
+      console.error('Error fetching user from database:', err);
+      return res.status(500).send('Error fetching user');
+    }
+    console.log('Database query result:', results);
+
+    if (results.length === 0) {
+      console.warn('No user found with username:', username);
+      return res.status(401).send('Invalid username or password');
+    }
+
+    const user = results[0];
+    console.log('User found:', user);
+
+    // Log the passwords being compared
+    console.log('Provided password:', password);
+    console.log('Stored hashed password:', user.password);
+
+    // Compare the provided password with the stored hashed password
+    bcrypt.compare(password, user.password, (err, isMatch) => {
+      if (err) {
+        console.error('Error comparing passwords:', err);
+        return res.status(500).send('Error verifying user');
+      }
+
+      if (!isMatch) {
+        console.warn('Password does not match for username:', username);
+        return res.status(401).send('Invalid username or password');
+      }
+
+      // Generate a JWT token
+      const token = jwt.sign({ username: user.username }, jwtSecret, { expiresIn: '1h' });
+      console.log('Login successful for username:', username);
+      res.json({ message: 'Login successful', token });
+    });
+  });
+});
+app.post('/analyze', (req, res) => {
+  const { code } = req.body;
+
+  runFlawfinderAndGeneratePDF(code, (error, pdfPath) => {
+      if (error) {
+          return res.status(500).send('Error creating PDF: ' + error.message);
+      }
+
+      // Send the generated PDF file
+      res.download(pdfPath, 'analysis_report.pdf', (err) => {
+          if (err) {
+              console.error('Error sending file:', err);
+          }
+          // Optionally, delete the file after sending it
+          fs.unlink(pdfPath, (err) => {
+              if (err) console.error('Error deleting file:', err);
+          });
+      });
+  });
+});
+
+function runFlawfinderAndGeneratePDF(code, callback) {
+    const codeFilePath = '/tmp/uploaded_code.c'; // Path to save uploaded code
+    fs.writeFileSync(codeFilePath, code);
+
+    // Run Flawfinder on the uploaded code
+    exec(`flawfinder ${codeFilePath}`, (error, stdout, stderr) => {
+        if (error) {
+            console.error('Error executing Flawfinder:', stderr);
+            return callback(new Error('Flawfinder execution failed'));
+        }
+
+        // Create a PDF document
+        const pdfPath = '/tmp/analysis_report.pdf'; // Path to save the PDF
+        const doc = new PDFDocument();
+        const writeStream = fs.createWriteStream(pdfPath);
+
+        // Pipe the PDF document to the write stream
+        doc.pipe(writeStream);
+        doc.fontSize(16).text('Flawfinder Analysis Report', { underline: true });
+        doc.moveDown();
+        doc.fontSize(12).text(stdout); // Output from Flawfinder
+        doc.end();
+
+        // Listen for the finish event to confirm PDF creation
+        writeStream.on('finish', () => {
+            console.log('PDF created successfully at', pdfPath); // Confirm PDF creation
+            callback(null, pdfPath);
+        });
+
+        writeStream.on('error', (err) => {
+            console.error('Error writing PDF:', err); // Log any errors
+            callback(new Error('Failed to create PDF'));
+        });
+    });
+}
 
 // Start the server
 app.listen(PORT, () => {
