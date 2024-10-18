@@ -8,7 +8,8 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const verifyToken = require('./verifyToken');
 const jwtSecret = 'DBDSW-Token-410';
-
+const PDFDocumentKit = require('pdfkit');
+const { PDFDocument } = require('pdf-lib');
 
 const app = express();
 const PORT = 3000;
@@ -173,16 +174,17 @@ app.post('/login', (req, res) => {
       }
 
       // Generate a JWT token
-      const token = jwt.sign({ username: user.username }, jwtSecret, { expiresIn: '1h' });
+      const token = jwt.sign({ username: user.username, type: user.type }, jwtSecret, { expiresIn: '1h' });
       console.log('Login successful for username:', username);
-      res.json({ message: 'Login successful', token });
+      res.json({ message: 'Login successful', token, userType: user.type });
     });
   });
 });
 app.post('/analyze', (req, res) => {
   const { code } = req.body;
+  console.log(req.headers);
 
-  runFlawfinderAndGeneratePDF(code, (error, pdfPath) => {
+  runFlawfinderAndGeneratePDF(code, req.headers.name, (error, pdfPath) => {
       if (error) {
           return res.status(500).send('Error creating PDF: ' + error.message);
       }
@@ -199,9 +201,16 @@ app.post('/analyze', (req, res) => {
       });
   });
 });
+app.get('/report', (req, res) => {
+      res.download("./report.pdf", 'report.pdf', (err) => {
+          if (err) {
+              console.error('Error sending file:', err);
+          }
+      });
+  });
 
-function runFlawfinderAndGeneratePDF(code, callback) {
-    const codeFilePath = '/tmp/uploaded_code.c'; // Path to save uploaded code
+function runFlawfinderAndGeneratePDF(code, filename, callback) {
+    const codeFilePath = './uploads/'+filename; // Path to save uploaded code
     fs.writeFileSync(codeFilePath, code);
 
     // Run Flawfinder on the uploaded code
@@ -212,8 +221,8 @@ function runFlawfinderAndGeneratePDF(code, callback) {
         }
 
         // Create a PDF document
-        const pdfPath = '/tmp/analysis_report.pdf'; // Path to save the PDF
-        const doc = new PDFDocument();
+        const pdfPath = './tmp/analysis_report.pdf'; // Path to save the PDF
+        const doc = new PDFDocumentKit();
         const writeStream = fs.createWriteStream(pdfPath);
 
         // Pipe the PDF document to the write stream
@@ -222,17 +231,71 @@ function runFlawfinderAndGeneratePDF(code, callback) {
         doc.moveDown();
         doc.fontSize(12).text(stdout); // Output from Flawfinder
         doc.end();
-
-        // Listen for the finish event to confirm PDF creation
-        writeStream.on('finish', () => {
-            console.log('PDF created successfully at', pdfPath); // Confirm PDF creation
-            callback(null, pdfPath);
-        });
-
-        writeStream.on('error', (err) => {
+        writeStream.on('finish', async () => {
+          if(fs.existsSync('./report.pdf')){
+                console.log('PDF created successfully at', pdfPath);
+    
+                const outputPDFPath = './report.pdf'; // Output path for the merged PDF
+                const mergedDoc = await PDFDocument.create(); // Create a new PDFDocument to merge into
+                console.log(mergedDoc);
+                // Load the first PDF (analysis report)
+                const pdf1Bytes = fs.readFileSync('./report.pdf');
+                const pdf1 = await PDFDocument.load(pdf1Bytes);
+                const pages1 = await mergedDoc.copyPages(pdf1, pdf1.getPageIndices());
+                pages1.forEach((page) => mergedDoc.addPage(page));
+    
+                // Load the second PDF (report.pdf)
+                const pdf2Bytes = fs.readFileSync(pdfPath);
+                const pdf2 = await PDFDocument.load(pdf2Bytes);
+                const pages2 = await mergedDoc.copyPages(pdf2, pdf2.getPageIndices());
+                pages2.forEach((page) => mergedDoc.addPage(page));
+    
+                // Save the merged PDF
+                const mergedPdfBytes = await mergedDoc.save();
+                fs.writeFileSync(outputPDFPath, mergedPdfBytes);
+                console.log('PDFs merged successfully into', outputPDFPath);
+                callback(null, pdfPath); // Return the path of the merged PDF
+          }
+          else{
+            console.log("does not exists!");
+            const report = new PDFDocumentKit();
+            const reportstream = fs.createWriteStream('./report.pdf');
+            report.pipe(reportstream);
+            report.fontSize(20).text('Full System Report', { underline: true });
+            report.end();
+            console.log('PDF created successfully at', pdfPath);
+            reportstream.on('finish', async () => {
+    
+                const outputPDFPath = './report.pdf'; // Output path for the merged PDF
+                const mergedDoc = await PDFDocument.create(); // Create a new PDFDocument to merge into
+                console.log(mergedDoc);
+                // Load the first PDF (analysis report)
+                const pdf1Bytes = fs.readFileSync('./report.pdf');
+                const pdf1 = await PDFDocument.load(pdf1Bytes);
+                const pages1 = await mergedDoc.copyPages(pdf1, pdf1.getPageIndices());
+                pages1.forEach((page) => mergedDoc.addPage(page));
+    
+                // Load the second PDF (report.pdf)
+                const pdf2Bytes = fs.readFileSync(pdfPath);
+                const pdf2 = await PDFDocument.load(pdf2Bytes);
+                const pages2 = await mergedDoc.copyPages(pdf2, pdf2.getPageIndices());
+                pages2.forEach((page) => mergedDoc.addPage(page));
+    
+                // Save the merged PDF
+                const mergedPdfBytes = await mergedDoc.save();
+                fs.writeFileSync(outputPDFPath, mergedPdfBytes);
+                console.log('PDFs merged successfully into', outputPDFPath);
+                callback(null, pdfPath); // Return the path of the merged PDF
+            });
+          }
+          writeStream.on('error', (err) => {
             console.error('Error writing PDF:', err); // Log any errors
             callback(new Error('Failed to create PDF'));
+          });
         });
+
+        // Listen for the finish event to confirm PDF creation
+        
     });
 }
 
