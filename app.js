@@ -5,6 +5,10 @@ const db = require('./database');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const userRoutes = require('./userRoutes');
+const fs = require('fs');
+const { exec } = require('child_process');
+const PDFDocument = require('pdfkit');
+
 
 const app = express();
 const port = 3000;
@@ -36,7 +40,7 @@ app.post('/login', (req, res) => {
 
   console.log('Attempting login for username:', username);
 
-  const query = 'SELECT * FROM users WHERE username = ?';
+  const query = 'SELECT * FROM users WHERE name = ?';
 
   db.query(query, [username], (err, results) => {
     if (err) {
@@ -104,6 +108,65 @@ app.post('/add-user', (req, res) => {
     });
   });
 });
+
+app.post('/analyze', (req, res) => {
+  const { code } = req.body;
+
+  runFlawfinderAndGeneratePDF(code, (error, pdfPath) => {
+      if (error) {
+          return res.status(500).send('Error creating PDF: ' + error.message);
+      }
+
+      // Send the generated PDF file
+      res.download(pdfPath, 'analysis_report.pdf', (err) => {
+          if (err) {
+              console.error('Error sending file:', err);
+          }
+          // Optionally, delete the file after sending it
+          fs.unlink(pdfPath, (err) => {
+              if (err) console.error('Error deleting file:', err);
+          });
+      });
+  });
+});
+
+function runFlawfinderAndGeneratePDF(code, callback) {
+    const codeFilePath = '/tmp/uploaded_code.c'; // Path to save uploaded code
+    fs.writeFileSync(codeFilePath, code);
+
+    // Run Flawfinder on the uploaded code
+    exec(`flawfinder ${codeFilePath}`, (error, stdout, stderr) => {
+        if (error) {
+            console.error('Error executing Flawfinder:', stderr);
+            return callback(new Error('Flawfinder execution failed'));
+        }
+
+        // Create a PDF document
+        const pdfPath = '/tmp/analysis_report.pdf'; // Path to save the PDF
+        const doc = new PDFDocument();
+        const writeStream = fs.createWriteStream(pdfPath);
+
+        // Pipe the PDF document to the write stream
+        doc.pipe(writeStream);
+        doc.fontSize(16).text('Flawfinder Analysis Report', { underline: true });
+        doc.moveDown();
+        doc.fontSize(12).text(stdout); // Output from Flawfinder
+        doc.end();
+
+        // Listen for the finish event to confirm PDF creation
+        writeStream.on('finish', () => {
+            console.log('PDF created successfully at', pdfPath); // Confirm PDF creation
+            callback(null, pdfPath);
+        });
+
+        writeStream.on('error', (err) => {
+            console.error('Error writing PDF:', err); // Log any errors
+            callback(new Error('Failed to create PDF'));
+        });
+    });
+}
+
+
 
 // START SERVER DONT TOUCH
 app.listen(port, () => {

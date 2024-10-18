@@ -80,5 +80,36 @@ document.getElementById('uploadForm').addEventListener('submit', function(event)
 
 function analyzeCode(code) {
     const resultDiv = document.getElementById('result');
-    resultDiv.innerText = `Analyzed code:\n${code}`;
+    resultDiv.innerText = 'Analyzing code...';
+
+    // Send the code to the server for analysis
+    fetch('/analyze', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('jwtToken')}`  // Include the token if needed
+        },
+        body: JSON.stringify({ code })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Error analyzing code');
+        }
+        return response.blob(); // Assuming the server responds with a PDF
+    })
+    .then(blob => {
+        // Create a URL for the blob and trigger a download
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'analysis_report.pdf'; // Name of the downloaded file
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url); // Clean up
+        resultDiv.innerText = 'Analysis complete! PDF downloaded.';
+    })
+    .catch(error => {
+        resultDiv.innerText = `Error: ${error.message}`;
+    });
 }
