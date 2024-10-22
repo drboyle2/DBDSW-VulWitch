@@ -21,6 +21,9 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
+if (!fs.existsSync(path.join(__dirname, 'tmp'))) {
+  fs.mkdirSync(path.join(__dirname, 'tmp'));
+}
 
 // Serve the contents of the public folder  
 app.use(express.static(path.join(__dirname, 'Public')));
@@ -219,6 +222,7 @@ function runFlawfinderAndGeneratePDF(code, filename, callback) {
             console.error('Error executing Flawfinder:', stderr);
             return callback(new Error('Flawfinder execution failed'));
         }
+        fs.unlinkSync(codeFilePath);
 
         // Create a PDF document
         const pdfPath = './tmp/analysis_report.pdf'; // Path to save the PDF
