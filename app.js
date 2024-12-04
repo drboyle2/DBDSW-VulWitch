@@ -160,11 +160,36 @@ app.post('/login', (req, res) => {
     const user = results[0];
     console.log('User found:', user);
 
-    // Log the passwords being compared
+    // Check if the account is locked
+    if (user.Locked === 1) {
+      const timeLocked = new Date(user.TimeLocked);
+      const currentTime = new Date();
+      const lockDuration = (currentTime - timeLocked) / 1000 / 60; // Time difference in minutes
+
+      if (lockDuration < 15) {
+        // Account is still locked
+        const remainingTime = (15 - lockDuration).toFixed(2); // Calculate remaining time
+        console.warn('Account locked. Try again in', remainingTime, 'minutes.');
+        return res.status(403).json({message: `Your account is locked. Please try again in ${remainingTime} minutes.`});
+      } else {
+        // Lock time is over, reset failed attempts and unlock the account
+        connection.query(
+          'UPDATE users SET FailedAttempts = 0, Locked = 0 WHERE name = ?',
+          [username],
+          (err) => {
+            if (err) {
+              console.error('Error unlocking account:', err);
+              return res.status(500).send('Error unlocking account');
+            }
+          }
+        );
+      }
+    }
+
+    // Compare the provided password with the stored hashed password
     console.log('Provided password:', password);
     console.log('Stored hashed password:', user.password);
 
-    // Compare the provided password with the stored hashed password
     bcrypt.compare(password, user.password, (err, isMatch) => {
       if (err) {
         console.error('Error comparing passwords:', err);
@@ -173,13 +198,69 @@ app.post('/login', (req, res) => {
 
       if (!isMatch) {
         console.warn('Password does not match for username:', username);
-        return res.status(401).send('Invalid username or password');
-      }
 
-      // Generate a JWT token
-      const token = jwt.sign({ username: user.username, type: user.type }, jwtSecret, { expiresIn: '1h' });
-      console.log('Login successful for username:', username);
-      res.json({ message: 'Login successful', token, userType: user.type });
+        // Increment failed attempts
+        connection.query(
+          'UPDATE users SET FailedAttempts = FailedAttempts + 1 WHERE name = ?',
+          [username],
+          (err) => {
+            if (err) {
+              console.error('Error incrementing failed attempts:', err);
+              return res.status(500).send('Error updating failed attempts');
+            }
+
+            // Check if failed attempts have reached 5
+            connection.query(
+              'SELECT FailedAttempts FROM users WHERE name = ?',
+              [username],
+              (err, results) => {
+                if (err) {
+                  console.error('Error fetching failed attempts:', err);
+                  return res.status(500).send('Error fetching failed attempts');
+                }
+
+                if (results[0].FailedAttempts >= 5) {
+                  // Lock account and set the lock time
+                  connection.query(
+                    'UPDATE users SET Locked = 1, TimeLocked = NOW() WHERE name = ?',
+                    [username],
+                    (err) => {
+                      if (err) {
+                        console.error('Error locking account:', err);
+                        return res.status(500).send('Error locking account');
+                      }
+                    }
+                  );
+                  return res.status(403).send('Account locked temporarily due to too many failed login attempts');
+                } else {
+                  return res.status(401).send('Invalid username or password');
+                }
+              }
+            );
+          }
+        );
+      } else {
+        // Password matched, reset failed attempts and proceed with login
+        console.log('User authenticated successfully');
+
+        connection.query(
+          'UPDATE users SET FailedAttempts = 0 WHERE name = ?',
+          [username],
+          (err) => {
+            if (err) {
+              console.error('Error resetting failed attempts:', err);
+              return res.status(500).send('Error resetting failed attempts');
+            }
+            console.log('Failed attempts reset to 0 for username:', username);
+          }
+        );
+
+        // Proceed with login logic (e.g., generating JWT, session, etc.)
+        const token = jwt.sign({ username: user.username, type: user.type }, jwtSecret, { expiresIn: '1h' });
+        console.log('Login successful for username:', username);
+
+        return res.json({ message: 'Login successful', token, userType: user.type });
+      }
     });
   });
 });
